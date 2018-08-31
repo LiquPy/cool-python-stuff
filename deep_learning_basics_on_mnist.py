@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 # load and normalize dataset
 mnist = tf.keras.datasets.mnist
 (x_train, y_train), (x_test, y_test) = mnist.load_data()
-x_train, x_test = x_train/256, x_test/256
+x_train, x_test = x_train/255, x_test/255
 
 # structure of model
 model = tf.keras.models.Sequential()
