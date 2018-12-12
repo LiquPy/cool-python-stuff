@@ -4,6 +4,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow_probability import distributions as tfd
+import tensorflow_probability as tfp
 import matplotlib.pyplot as plt
 
 temperature_ = np.array([53, 57, 58, 64, 66, 67, 68, 69, 70, 70, 72, 73, 75, 75, 76, 78, 79, 81])
@@ -64,6 +65,81 @@ def challenger_joint_log_prob(D, temperature_, alpha, beta):
     D,
 ])
 
+
+
+# Hamiltonian Monte Carlo
+number_of_steps = 60000
+burnin = 50000
+
+# Set the chain's start state.
+initial_chain_state = [
+    0. * tf.ones([], dtype=tf.float32, name="init_alpha"),
+    0. * tf.ones([], dtype=tf.float32, name="init_beta")
+]
+
+# Since HMC operates over unconstrained space, we need to transform the
+# samples so they live in real-space.
+unconstraining_bijectors = [
+    tfp.bijectors.Identity(),
+    tfp.bijectors.Identity()
+]
+
+# Define a closure over our joint_log_prob.
+unnormalized_posterior_log_prob = lambda *args: challenger_joint_log_prob(D, temperature_, *args)
+
+# Initialize the step_size. (It will be automatically adapted.)
+with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+    step_size = tf.get_variable(
+        name='step_size',
+        initializer=tf.constant(0.5, dtype=tf.float32),
+        trainable=False,
+        use_resource=True
+    )
+
+# Defining the HMC
+hmc=tfp.mcmc.TransformedTransitionKernel(
+    inner_kernel=tfp.mcmc.HamiltonianMonteCarlo(
+        target_log_prob_fn=unnormalized_posterior_log_prob,
+        num_leapfrog_steps=2,
+        step_size=step_size,
+        step_size_update_fn=tfp.mcmc.make_simple_step_size_update_policy(),
+        state_gradients_are_stopped=True),
+    bijector=unconstraining_bijectors)
+
+# Sampling from the chain.
+[
+    posterior_alpha,
+    posterior_beta
+], kernel_results = tfp.mcmc.sample_chain(
+    num_results = number_of_steps,
+    num_burnin_steps = burnin,
+    current_state=initial_chain_state,
+    kernel=hmc)
+
+# Initialize any created variables for preconditions
+init_g = tf.global_variables_initializer()
+
+evaluate(init_g)
+[
+    posterior_alpha_,
+    posterior_beta_,
+    kernel_results_
+] = evaluate([
+    posterior_alpha,
+    posterior_beta,
+    kernel_results
+])
+
+
+print("acceptance rate: {}".format(
+    kernel_results_.inner_results.is_accepted.mean()))
+print("final step size: {}".format(
+    kernel_results_.inner_results.extra.step_size_assign[-100:].mean()))
+
+alpha_samples_ = posterior_alpha_[burnin::8]
+beta_samples_ = posterior_beta_[burnin::8]
+
+# Visualization
 plt.scatter(temperature_, damage_)
 
 plt.show()
